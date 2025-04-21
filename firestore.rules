@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Basic helper function
+    function isAuth() {
+      return request.auth != null;
+    }
+    
+    // Allow read access to all posts for authenticated users
+    match /posts/{postId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth() && 
+                   (request.auth.uid == resource.data.authorId || 
+                    request.resource.data.diff(resource.data).affectedKeys().hasAny(['likeCount']));
+      allow delete: if isAuth() && request.auth.uid == resource.data.authorId;
+      
+      // Most importantly: Allow access to likes subcollection
+      match /likes/{likeId} {
+        allow read, write: if isAuth();
+      }
+    }
+    
+    // Users collection with access to hidden_posts subcollection
+    match /users/{userId} {
+      allow read: if isAuth();
+      allow write: if isAuth() && request.auth.uid == userId;
+      
+      match /hidden_posts/{postId} {
+        allow read, write: if isAuth() && request.auth.uid == userId;
+      }
+    }
+    
+    // Add specific rules for chats collection
+    match /chats/{chatId} {
+      allow read: if isAuth() && 
+                  resource.data.participants.hasAny([request.auth.uid]);
+      allow create: if isAuth();
+      allow update: if isAuth() && 
+                   resource.data.participants.hasAny([request.auth.uid]);
+      allow delete: if isAuth() && 
+                   resource.data.participants.hasAny([request.auth.uid]);
+                   
+      // Allow access to messages subcollection
+      match /messages/{messageId} {
+        allow read: if isAuth() && 
+                   get(/databases/$(database)/documents/chats/$(chatId)).data.participants.hasAny([request.auth.uid]);
+        allow write: if isAuth() && 
+                    get(/databases/$(database)/documents/chats/$(chatId)).data.participants.hasAny([request.auth.uid]);
+      }
+    }
+    
+    // Allow creation of reports
+    match /reported_posts/{reportId} {
+      allow create: if isAuth();
+      allow read: if isAuth() && request.auth.uid == resource.data.reportedBy;
+    }
+    
+    // General rules for other collections
+    match /comments/{commentId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update, delete: if isAuth() && request.auth.uid == resource.data.authorId;
+    }
+    
+    match /children/{childId} {
+      allow read: if isAuth();
+      allow create, update, delete: if isAuth();
+    }
+  }
+}
